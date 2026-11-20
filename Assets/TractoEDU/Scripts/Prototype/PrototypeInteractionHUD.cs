@@ -66,6 +66,12 @@ public sealed class PrototypeInteractionHUD : MonoBehaviour
     public void SetDashboardHoverTarget(Interactable target)
     {
         // Muestra el nombre del mando bajo el cursor aunque siga abierta la vista del tablero.
+        SetFocusHoverTarget(target);
+    }
+
+    public void SetFocusHoverTarget(Interactable target)
+    {
+        // Reutiliza el nombre flotante en cualquier vista enfocada que use el cursor.
         SetTarget(target);
         if (hoverNameLabel == null) return;
 
@@ -86,7 +92,33 @@ public sealed class PrototypeInteractionHUD : MonoBehaviour
         }
         if (informationPanel != null) informationPanel.SetActive(true);
         if (hoverNameLabel != null) hoverNameLabel.gameObject.SetActive(false);
-        if (exitPromptLabel != null) exitPromptLabel.gameObject.SetActive(true);
+        if (exitPromptLabel != null)
+        {
+            exitPromptLabel.text = "Presiona Q para salir";
+            exitPromptLabel.gameObject.SetActive(true);
+        }
+    }
+
+    public void ShowSideOverview(string sideName)
+    {
+        // Deja visible solo la indicación de uso mientras se apuntan las palancas del lado elegido.
+        isInspecting = true;
+        if (informationPanel != null) informationPanel.SetActive(false);
+        if (nameText != null) nameText.text = string.Empty;
+        if (descriptionText != null) descriptionText.text = string.Empty;
+        if (hoverNameLabel != null) hoverNameLabel.gameObject.SetActive(false);
+        if (exitPromptLabel != null)
+        {
+            exitPromptLabel.text = "Vista " + sideName + ": apunta a una palanca y haz clic · Q para volver";
+            exitPromptLabel.gameObject.SetActive(true);
+        }
+    }
+
+    public void ShowSideComponentInspection(Interactable target)
+    {
+        ShowInspection(target);
+        if (exitPromptLabel != null)
+            exitPromptLabel.text = "Presiona Q para volver a la vista lateral";
     }
 
     public void ShowInformation(Interactable target)

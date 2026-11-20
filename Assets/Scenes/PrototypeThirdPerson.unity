@@ -1534,10 +1534,9 @@ MonoBehaviour:
   minimumPitch: -80
   maximumPitch: 80
   startingPitch: 27
-  sideLookAngle: 28
-  sideLookSmoothTime: 0.18
-  sidePeekDistance: 0.22
-  sidePeekCollisionRadius: 0.08
+  sideViewAngle: 100
+  sideViewFieldOfView: 66
+  sideViewSmoothTime: 0.42
 --- !u!81 &1677539998
 AudioListener:
   m_ObjectHideFlags: 0

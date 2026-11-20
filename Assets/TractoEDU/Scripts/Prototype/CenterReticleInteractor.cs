@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -23,7 +25,11 @@ public sealed class CenterReticleInteractor : MonoBehaviour
     private Interactable currentTarget;
     private Interactable inspectedTarget;
     private Interactable dashboardFocusTarget;
+    private readonly HashSet<Interactable> sideFocusTargets = new HashSet<Interactable>();
     private bool isInspecting;
+    private bool sideFocusActive;
+    private bool sideFocusDetailsOpen;
+    private int sideFocusDirection;
     private bool interactionSuspended;
     private bool suppressClickUntilRelease = true;
 
@@ -45,6 +51,12 @@ public sealed class CenterReticleInteractor : MonoBehaviour
 
     private void Update()
     {
+        if (sideFocusActive)
+        {
+            UpdateSideFocus();
+            return;
+        }
+
         // El cursor puede apuntar a mandos individuales mientras el tablero está ampliado.
         if (isInspecting)
         {
@@ -89,6 +101,21 @@ public sealed class CenterReticleInteractor : MonoBehaviour
             return;
         }
 
+        Keyboard explorationKeyboard = Keyboard.current;
+        if (explorationKeyboard != null)
+        {
+            if (explorationKeyboard.aKey.wasPressedThisFrame)
+            {
+                TryBeginSideFocus(-1);
+                return;
+            }
+            if (explorationKeyboard.dKey.wasPressedThisFrame)
+            {
+                TryBeginSideFocus(1);
+                return;
+            }
+        }
+
         // El rayo nace en el centro exacto de la vista y respeta distancia, capas y triggers.
         Ray centerRay = viewCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
         Interactable target = null;
@@ -108,6 +135,164 @@ public sealed class CenterReticleInteractor : MonoBehaviour
             return;
         }
         if (mouse != null && mouse.leftButton.wasPressedThisFrame) TryInteractWithCurrentTarget();
+    }
+
+    private bool TryBeginSideFocus(int direction)
+    {
+        if (cameraController == null || viewCamera == null || interactionSuspended || isInspecting) return false;
+
+        Transform playerRoot = viewCamera.transform.parent;
+        if (playerRoot == null || cameraController == null) return false;
+
+        sideFocusTargets.Clear();
+        Bounds focusBounds = new Bounds();
+        bool hasBounds = false;
+        Interactable[] interactables = FindObjectsByType<Interactable>(FindObjectsSortMode.None);
+        foreach (Interactable candidate in interactables)
+        {
+            if (candidate == null || !candidate.enabled || !candidate.gameObject.activeInHierarchy || candidate.IsDashboardComponent)
+                continue;
+            if (!IsSideFocusControl(candidate)) continue;
+
+            Vector3 localPosition = cameraController.GetSideFocusReferenceLocalPosition(candidate.transform.position);
+            if (direction < 0 ? localPosition.x >= 0f : localPosition.x <= 0f) continue;
+
+            sideFocusTargets.Add(candidate);
+            foreach (Renderer targetRenderer in candidate.GetComponentsInChildren<Renderer>(true))
+            {
+                if (targetRenderer == null || !targetRenderer.enabled || targetRenderer.name.EndsWith("_Outline") ||
+                    targetRenderer.name.StartsWith("Etiqueta_", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!hasBounds)
+                {
+                    focusBounds = targetRenderer.bounds;
+                    hasBounds = true;
+                }
+                else focusBounds.Encapsulate(targetRenderer.bounds);
+            }
+
+            if (!hasBounds)
+            {
+                if (!hasBounds) focusBounds = new Bounds(candidate.transform.position, Vector3.zero);
+                else focusBounds.Encapsulate(candidate.transform.position);
+                hasBounds = true;
+            }
+        }
+
+        if (sideFocusTargets.Count == 0 || !hasBounds)
+        {
+            sideFocusTargets.Clear();
+            return false;
+        }
+
+        SetCurrentTarget(null);
+        sideFocusDirection = direction;
+        sideFocusActive = true;
+        sideFocusDetailsOpen = false;
+        dashboardFocusTarget = null;
+        inspectedTarget = null;
+        isInspecting = true;
+        if (playerMovement != null) playerMovement.SetInspectionLocked(true);
+        cameraController.BeginSideFocus(focusBounds, inspectionTransitionDuration);
+        if (hud != null) hud.ShowSideOverview(direction < 0 ? "izquierda" : "derecha");
+        return true;
+    }
+
+    private void UpdateSideFocus()
+    {
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null && keyboard.qKey.wasPressedThisFrame)
+        {
+            if (sideFocusDetailsOpen) ReturnToSideOverview();
+            else EndInspection();
+            return;
+        }
+
+        if (cameraController == null || !cameraController.IsSideFocusActive)
+        {
+            EndInspection();
+            return;
+        }
+
+        if (sideFocusDetailsOpen)
+        {
+            if (inspectedTarget == null || !inspectedTarget.enabled || !inspectedTarget.gameObject.activeInHierarchy)
+                ReturnToSideOverview();
+            return;
+        }
+
+        UpdateSideFocusPointerTarget();
+        Mouse mouse = Mouse.current;
+        if (mouse != null && mouse.leftButton.wasPressedThisFrame && currentTarget != null)
+            TryInspectSideComponent(currentTarget);
+    }
+
+    private void UpdateSideFocusPointerTarget()
+    {
+        Mouse mouse = Mouse.current;
+        if (viewCamera == null || mouse == null)
+        {
+            SetCurrentTarget(null);
+            return;
+        }
+
+        Ray pointerRay = viewCamera.ScreenPointToRay(mouse.position.ReadValue());
+        RaycastHit[] hits = Physics.RaycastAll(pointerRay, interactionDistance, interactionLayers, QueryTriggerInteraction.Collide);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+        Collider firstOccluder = null;
+
+        foreach (RaycastHit hit in hits)
+        {
+            Interactable candidate = hit.collider.GetComponentInParent<Interactable>();
+            if (candidate != null && sideFocusTargets.Contains(candidate))
+            {
+                if (firstOccluder == null || candidate.CanBeSelectedThrough(firstOccluder))
+                    SetCurrentTarget(candidate);
+                else
+                    SetCurrentTarget(null);
+                return;
+            }
+
+            if (candidate != null && (candidate.DisplayName == SeatDisplayName ||
+                                      candidate.DisplayName == TractorDisplayName ||
+                                      candidate.DisplayName == "Volante"))
+            {
+                if (firstOccluder == null) firstOccluder = hit.collider;
+                continue;
+            }
+
+            if (candidate == null && hit.collider.isTrigger) continue;
+            SetCurrentTarget(null);
+            return;
+        }
+
+        SetCurrentTarget(null);
+    }
+
+    private static bool IsSideFocusControl(Interactable candidate)
+    {
+        return candidate != null &&
+               (candidate.DisplayName.StartsWith("Palanca", StringComparison.OrdinalIgnoreCase) ||
+                candidate.DisplayName.StartsWith("Control de velocidad de descenso", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void TryInspectSideComponent(Interactable target)
+    {
+        if (!sideFocusActive || target == null || !sideFocusTargets.Contains(target)) return;
+
+        inspectedTarget = target;
+        sideFocusDetailsOpen = true;
+        if (hud != null) hud.ShowSideComponentInspection(target);
+    }
+
+    private void ReturnToSideOverview()
+    {
+        if (inspectedTarget != null && inspectedTarget != currentTarget)
+            inspectedTarget.SetHighlighted(false);
+
+        inspectedTarget = null;
+        sideFocusDetailsOpen = false;
+        SetCurrentTarget(null);
+        if (hud != null) hud.ShowSideOverview(sideFocusDirection < 0 ? "izquierda" : "derecha");
     }
 
     private Interactable FindTargetThroughAllowedOccluder(Ray centerRay, RaycastHit nearestHit)
@@ -149,6 +334,7 @@ public sealed class CenterReticleInteractor : MonoBehaviour
         if (hud == null) return;
 
         if (IsDashboardOverviewActive()) hud.SetDashboardHoverTarget(currentTarget);
+        else if (sideFocusActive && !sideFocusDetailsOpen) hud.SetFocusHoverTarget(currentTarget);
         else hud.SetTarget(currentTarget);
     }
 
@@ -262,6 +448,10 @@ public sealed class CenterReticleInteractor : MonoBehaviour
         isInspecting = false;
         inspectedTarget = null;
         dashboardFocusTarget = null;
+        sideFocusActive = false;
+        sideFocusDetailsOpen = false;
+        sideFocusDirection = 0;
+        sideFocusTargets.Clear();
         if (cameraController != null) cameraController.EndInspection();
         if (playerMovement != null) playerMovement.SetInspectionLocked(false);
         if (hud != null) hud.EndInspection();

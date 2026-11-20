@@ -154,7 +154,14 @@ public sealed class Interactable : MonoBehaviour
     {
         // El resaltado se dibuja habilitando/deshabilitando los renderers duplicados.
         if (highlighted && outlineMaterial == null) return;
-        if (isHighlighted == highlighted) return;
+
+        // Algunos componentes reciben sus mallas después de Awake; en ese caso el primer
+        // enfoque vuelve a buscar los renderers para que el contorno no se quede vacío.
+        if (highlighted && outlineParts.Count == 0 && outlinesCreated && Application.isPlaying)
+        {
+            DestroyOutlineVisuals();
+            CreateOutlineVisuals();
+        }
 
         isHighlighted = highlighted;
         foreach (OutlinePart part in outlineParts)
@@ -179,6 +186,11 @@ public sealed class Interactable : MonoBehaviour
 
         foreach (Renderer source in sourceRenderers)
         {
+            // No duplica contornos previos ni expande las etiquetas decorativas del modelo.
+            if (source == null || source.name.EndsWith("_Outline", System.StringComparison.Ordinal) ||
+                source.name.StartsWith("Etiqueta_", System.StringComparison.OrdinalIgnoreCase))
+                continue;
+
             if (source is SkinnedMeshRenderer skinned)
                 CreateSkinnedOutline(skinned);
             else if (source is MeshRenderer meshRenderer)
