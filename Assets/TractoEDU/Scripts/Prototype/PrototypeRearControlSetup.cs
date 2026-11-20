@@ -68,6 +68,27 @@ public sealed class PrototypeRearControlSetup : MonoBehaviour
             "Permite elegir un rango de transmisión según el patrón marcado junto a la palanca.",
             "Se opera después de pisar el embrague; para arrancar, ambas palancas deben estar en punto muerto.",
             seatCollider);
+
+        // Estas cuatro piezas del modelo se reconocen como controles de ajuste, pero la documentación
+        // incluida no indica sus posiciones ni la secuencia de operación; se evita inventar instrucciones.
+        string adjustmentName = "Palanca_de_ajuste_de_fuerza_y_de_posici\u00F3n";
+        for (int i = 0; i < 4; i++)
+        {
+            string suffix = i == 0 ? string.Empty : ".00" + i;
+            RegisterNamedControl(modelTransforms, adjustmentName + suffix,
+                "Palanca de ajuste de fuerza y posición " + (i + 1),
+                "El nombre del modelo identifica esta pieza como un control de ajuste de fuerza y posición. La documentación disponible no describe su mecanismo.",
+                "El manual disponible no especifica el efecto ni los rangos de ajuste de esta palanca.",
+                "El manual disponible no detalla cuándo ni en qué secuencia debe operarse.",
+                seatCollider);
+        }
+
+        RegisterNamedControl(modelTransforms, "Bot\u00F3n_de_velocidad_de_bajada_del_elevador",
+            "Control de velocidad de descenso del elevador",
+            "Control identificado en el modelo para regular la velocidad de bajada del elevador.",
+            "Permite ajustar la velocidad de descenso del elevador; la documentación disponible no detalla sus posiciones.",
+            "El manual disponible no especifica el procedimiento de uso ni las situaciones de ajuste.",
+            seatCollider);
     }
 
     private void RegisterNamedControl(Transform[] modelTransforms, string exactName, string displayName, string function, string utility, string usage, Collider interactionOccluder = null, bool fitColliderToWorldBounds = false)
